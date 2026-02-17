@@ -1,5 +1,5 @@
 [flake8]
-exclude = .git,__pycache__,build,dist,venv
+exclude = .git,__pycache__,build,dist,venv,.venv,env,.env
 select = E9,F
 max-line-length = 120
 per-file-ignores =

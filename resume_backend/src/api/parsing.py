@@ -1,8 +1,9 @@
+import io
 import re
 from typing import Any, Dict, List, Optional
 
-from pypdf import PdfReader
 from docx import Document
+from pypdf import PdfReader
 
 
 def _clean_text(text: str) -> str:
@@ -14,7 +15,12 @@ def _clean_text(text: str) -> str:
 
 def extract_text_from_pdf(data: bytes) -> str:
     """Extract text from a PDF blob."""
-    reader = PdfReader(io=data)  # type: ignore[arg-type]
+    try:
+        reader = PdfReader(io.BytesIO(data))
+    except Exception:
+        # If it's not a valid PDF, fail gracefully (caller will store empty text rather than 500).
+        return ""
+
     parts: List[str] = []
     for page in reader.pages:
         try:
@@ -26,9 +32,6 @@ def extract_text_from_pdf(data: bytes) -> str:
 
 def extract_text_from_docx(data: bytes) -> str:
     """Extract text from a DOCX blob."""
-    # python-docx expects a file-like object; it can accept a bytes buffer.
-    import io
-
     doc = Document(io.BytesIO(data))
     parts: List[str] = []
     for p in doc.paragraphs:
@@ -43,16 +46,13 @@ def extract_text(filename: str, content_type: Optional[str], data: bytes) -> str
     ct = (content_type or "").lower()
 
     if name.endswith(".pdf") or ct == "application/pdf":
-        # pypdf expects a file-like. Provide it via BytesIO, but PdfReader supports bytes in recent versions.
-        import io
+        return extract_text_from_pdf(data)
 
-        reader = PdfReader(io.BytesIO(data))
-        parts: List[str] = []
-        for page in reader.pages:
-            parts.append(page.extract_text() or "")
-        return _clean_text("\n".join(parts))
-
-    if name.endswith(".docx") or "wordprocessingml" in ct or ct == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+    if (
+        name.endswith(".docx")
+        or "wordprocessingml" in ct
+        or ct == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ):
         return extract_text_from_docx(data)
 
     # Fallback: treat as utf-8-ish text
@@ -63,7 +63,12 @@ def extract_text(filename: str, content_type: Optional[str], data: bytes) -> str
 
 
 def _find_emails(text: str) -> List[str]:
-    return list({m.group(0) for m in re.finditer(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, re.I)})
+    return list(
+        {
+            m.group(0)
+            for m in re.finditer(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, re.I)
+        }
+    )
 
 
 def _find_phone(text: str) -> Optional[str]:
@@ -95,7 +100,11 @@ def extract_structured_fields(raw_text: str) -> Dict[str, Any]:
     skills = sorted(
         {
             s.strip().lower()
-            for s in re.findall(r"\b(python|java|javascript|typescript|react|node|sql|postgres|aws|gcp|azure|docker|kubernetes|fastapi|django|flask)\b", raw_text, re.I)
+            for s in re.findall(
+                r"\b(python|java|javascript|typescript|react|node|sql|postgres|aws|gcp|azure|docker|kubernetes|fastapi|django|flask)\b",
+                raw_text,
+                re.I,
+            )
         }
     )
     return {
